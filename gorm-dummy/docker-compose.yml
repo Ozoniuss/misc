@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+
+  dummy_gin_db:
+    image: postgres:14.5
+    container_name: dummy_gin_db
+    ports:
+      - 127.0.0.1:5432:5432
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: somefatguy
+      POSTGRES_DB: defaultdb
+    volumes:
+      - ./scripts/:/scripts
