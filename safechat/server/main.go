@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"sync"
 
 	crypt "safechat/encryption"
 )
@@ -29,6 +28,7 @@ const (
 	SERVER_CLOSE byte = 8
 )
 
+// ConnState represents the state of the connection with the client.
 type ConnState struct {
 	clientHello bool
 	priv        *crypt.PrivateKey
@@ -43,78 +43,32 @@ func NewConnState() ConnState {
 	}
 }
 
-type AllConnections struct {
-	m     *sync.Mutex
-	conns map[net.Conn]ConnState
-}
-
-func NewAllConnections() AllConnections {
-	return AllConnections{
-		m:     &sync.Mutex{},
-		conns: make(map[net.Conn]ConnState),
+func (state *ConnState) setPrivKey(p crypt.PrivateKey) error {
+	if state.priv != nil {
+		return errors.New("private key was already set")
 	}
-}
-
-func (a AllConnections) add(c net.Conn) {
-	a.m.Lock()
-	defer a.m.Unlock()
-	a.conns[c] = NewConnState()
-}
-
-func (a AllConnections) del(c net.Conn) {
-	a.m.Lock()
-	defer a.m.Unlock()
-	delete(a.conns, c)
-}
-
-func (a AllConnections) setPrivKey(c net.Conn, p crypt.PrivateKey) error {
-	a.m.Lock()
-	defer a.m.Unlock()
-	if state, ok := a.conns[c]; ok {
-		if state.priv != nil {
-			return errors.New("private key was already set")
-		}
-		state.priv = &p
-		a.conns[c] = state
-	}
+	state.priv = &p
 	return nil
 }
 
-func (a AllConnections) getPrivKey(c net.Conn) (crypt.PrivateKey, error) {
-	a.m.Lock()
-	defer a.m.Unlock()
-	if _, ok := a.conns[c]; ok {
-		return *a.conns[c].priv, nil
-	}
-	return crypt.PrivateKey{}, errors.New("connection not found")
+func (state *ConnState) getPrivKey() crypt.PrivateKey {
+	return *state.priv
 }
 
-func (a AllConnections) setSymKey(c net.Conn, sym [32]byte) error {
-	a.m.Lock()
-	defer a.m.Unlock()
-	if state, ok := a.conns[c]; ok {
-		if state.sym != nil {
-			return errors.New("symmetric key was already set")
-		}
-		state.sym = &sym
-		a.conns[c] = state
+func (state *ConnState) setSymKey(s [32]byte) error {
+	if state.sym != nil {
+		return errors.New("symmetric key was already set")
 	}
+	state.sym = &s
 	return nil
 }
 
-func (a AllConnections) getSymKey(c net.Conn) ([32]byte, error) {
-	a.m.Lock()
-	defer a.m.Unlock()
-	if _, ok := a.conns[c]; ok {
-		return *a.conns[c].sym, nil
-	}
-	return [32]byte{}, errors.New("connection not found")
+func (state *ConnState) getSymKey() [32]byte {
+	return *state.sym
 }
 
 func run() error {
 	fmt.Println("Server Running...")
-
-	allCons := NewAllConnections()
 
 	server, err := net.Listen(SERVER_TYPE, SERVER_HOST+":"+SERVER_PORT)
 	if err != nil {
@@ -128,11 +82,12 @@ func run() error {
 
 	for {
 		connection, err := server.Accept()
+		state := NewConnState()
 		if err != nil {
 			fmt.Println("Error accepting client: ", err.Error())
 		}
 		fmt.Println("client connected")
-		go processClient(connection, allCons)
+		processClient(connection, &state)
 	}
 }
 
@@ -147,23 +102,21 @@ func main() {
 	}
 }
 
-func processClient(connection net.Conn, allCons AllConnections) {
+func processClient(connection net.Conn, state *ConnState) {
 
-	allCons.add(connection)
-	defer allCons.del(connection)
 	defer func() {
 		fmt.Println("client disconnected")
 	}()
 
 	for {
-		err := processMessage(connection, allCons)
+		err := processMessage(connection, state)
 		if err != nil {
 			break
 		}
 	}
 }
 
-func processMessage(connection net.Conn, allCons AllConnections) error {
+func processMessage(connection net.Conn, state *ConnState) error {
 	buffer := make([]byte, 1024)
 	mLen, err := connection.Read(buffer)
 	if err != nil {
@@ -173,48 +126,65 @@ func processMessage(connection net.Conn, allCons AllConnections) error {
 		return errors.New("Received null message")
 	}
 	header := buffer[0]
+	content := buffer[1:mLen]
+
 	switch header {
 	case CLIENT_HELLO:
+		fmt.Println("[client hello]: received client hello")
 		pub, priv := crypt.GenerateKeyPair()
-		err := allCons.setPrivKey(connection, priv)
+		err := state.setPrivKey(priv)
 		if err != nil {
-			connection.Write(getMsg(ERROR, err.Error()))
+			connection.Write(writeMsg(ERROR, "client hello failed: received hello request twice"))
 			fmt.Println("[server log] received hello request twice")
 			break
 		}
-		sends := []byte{SERVER_HELLO}
 
 		pubBytes := pub.Marshal()
-		sends = append(sends, pubBytes...)
+		sends := writeMsg(SERVER_HELLO, string(pubBytes))
 
 		connection.Write(sends)
 
 	case CLIENT_DONE:
-		symKeyEncrypted := buffer[1:mLen]
-		fmt.Printf("Received encrypted symKey: %v\n", symKeyEncrypted)
+		// At this step it is assumed that the client returned his symmetric
+		// key.
+		symKeyEncrypted := content
+		fmt.Printf("[client done] received encrypted symmetric key: %v\n", symKeyEncrypted)
 
-		privKey, _ := allCons.getPrivKey(connection)
+		privKey := state.getPrivKey()
 		symKey := privKey.DecryptString(fmt.Sprintf("%s", symKeyEncrypted))
-		fmt.Printf("Decrypted symKey: %v\n", symKey)
+		fmt.Printf("[client done] decrypted symmetrick key is: %v\n", symKey)
 
 		symKey32 := [32]byte{}
 		copy(symKey32[:], symKey[:])
 
-		allCons.setSymKey(connection, symKey32)
+		state.setSymKey(symKey32)
+
+		sends := writeMsg(SERVER_DONE, "")
+		connection.Write(sends)
 
 	case CLIENT_MSG:
-		fmt.Printf("[info] received encrypted message: %s\n", buffer[1:mLen])
-		symkey, _ := allCons.getSymKey(connection)
+		fmt.Printf("[message] received encrypted message: %s\n", content)
+		symkey := state.getSymKey()
 		msg := crypt.DecryptAES(symkey[:], buffer[1:mLen])
-		fmt.Printf("[info] decrypted message: %s\n", msg)
+		fmt.Printf("[message] decrypted message: %s\n", msg)
+
+		sends := []byte{SERVER_MSG}
+		sends = append(sends, content...)
+
+		connection.Write(sends)
+
 	default:
-		return errors.New("Received null message")
+		fmt.Printf("[error] received invalid header")
+		sends := writeMsg(ERROR, "received invalid header")
+		connection.Write(sends)
 	}
 	return nil
 }
 
-func getMsg(typ byte, msg string) []byte {
+func writeMsg(typ byte, msg string) []byte {
 	sends := []byte{typ}
-	sends = append(sends, []byte(msg)...)
+	if msg != "" {
+		sends = append(sends, []byte(msg)...)
+	}
 	return sends
 }

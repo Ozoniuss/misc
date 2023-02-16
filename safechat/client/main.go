@@ -27,13 +27,13 @@ const (
 	SERVER_CLOSE byte = 8
 )
 
-type state struct {
+type ConnState struct {
 	pubKey *crypt.PublicKey
 	symKey *[32]byte
 }
 
-func newState() state {
-	return state{
+func newState() ConnState {
+	return ConnState{
 		pubKey: nil,
 		symKey: nil,
 	}
@@ -46,10 +46,9 @@ func readMessage() (byte, string) {
 	return typ, msg
 }
 
-func getMsg(typ byte, msg string, s state) []byte {
+func writeMsg(typ byte, msg string, s *ConnState) []byte {
 	sends := []byte{typ}
-	if s.symKey != nil {
-		fmt.Println("sddas")
+	if s.symKey != nil && msg != "" {
 		msg = fmt.Sprintf("%s", crypt.EncryptAES(s.symKey[:], []byte(msg)))
 	}
 	sends = append(sends, []byte(msg)...)
@@ -65,26 +64,19 @@ func main() {
 
 	state := newState()
 
-	//send some data
 	for {
 		typ, msg := readMessage()
-		sends := getMsg(typ, msg, state)
+		sends := writeMsg(typ, msg, &state)
 		_, err := connection.Write(sends)
 		if err != nil {
 			panic(err)
 		}
 		processMessage(connection, &state)
 	}
-
-	// mLen, err := connection.Read(buffer)
-	// if err != nil {
-	// 	fmt.Println("Error reading:", err.Error())
-	// }
-	// fmt.Println("Received: ", string(buffer[:mLen]))
-	// defer connection.Close()
 }
 
-func processMessage(connection net.Conn, s *state) error {
+func processMessage(connection net.Conn, s *ConnState) error {
+
 	buffer := make([]byte, 1024)
 	mLen, err := connection.Read(buffer)
 	if err != nil {
@@ -94,34 +86,39 @@ func processMessage(connection net.Conn, s *state) error {
 		return errors.New("Received null message")
 	}
 	header := buffer[0]
+	content := buffer[1:mLen]
+
 	switch header {
-	case ERROR:
-		fmt.Printf("[error] %s\n", string(buffer[1:mLen]))
 	case SERVER_HELLO:
-		fmt.Println("[info] received server hello")
+		fmt.Println("[server hello] received server hello")
 
 		pubKey := &crypt.PublicKey{}
-		pubKey.Unmarshal(buffer[1:mLen])
+		pubKey.Unmarshal(content)
 
 		s.pubKey = pubKey
 
-		fmt.Printf("public key is %+v\n", pubKey)
+		fmt.Printf("[server hello] public key is %+v\n", pubKey)
 
 		symKey := generateSymKey()
-		fmt.Printf("generated sym key: %v\n", symKey)
+		fmt.Printf("[server hello] generated sym key: %v\n", symKey)
 
 		msg := pubKey.EncryptString(symKey[:])
 
-		connection.Write(getMsg(CLIENT_DONE, msg, *s))
+		connection.Write(writeMsg(CLIENT_DONE, msg, s))
 
 		s.symKey = &symKey
 
 	case SERVER_MSG:
-		fmt.Printf("[info] received encrypted message: %s\n", buffer[1:mLen])
-		//fmt.Printf("[info] decrypted message: %s\n")
+		fmt.Printf("[message] server encrypted message as: %s\n", buffer[1:mLen])
+
+	case SERVER_DONE:
+		fmt.Println("[server done] handshake complete")
+
+	case ERROR:
+		fmt.Printf("[error] received error: %s\n", content)
 
 	default:
-		return errors.New("Received message with invalid header")
+		fmt.Println("[error] handshake complete")
 	}
 	return nil
 }
