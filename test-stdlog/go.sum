@@ -1,2 +1,2 @@
-github.com/Ozoniuss/stdlog v0.0.0-20230217174910-c6b511c1fc17 h1:OV/WVDMP9CqmXZM+ByMsiXKJPQeLaCEXwwTUXlEYfuo=
-github.com/Ozoniuss/stdlog v0.0.0-20230217174910-c6b511c1fc17/go.mod h1:ESoE3yIJ5T4X92at82hSP3hjnlam4ynfs14t9QO3RJk=
+github.com/Ozoniuss/stdlog v1.0.0 h1:z3xL1FDW8y5Kzygr/rrd6OxvCdJgqanAzk/N0gzuAbI=
+github.com/Ozoniuss/stdlog v1.0.0/go.mod h1:ESoE3yIJ5T4X92at82hSP3hjnlam4ynfs14t9QO3RJk=
