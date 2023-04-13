@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Entity models the database entity.
 type Entity struct {
 	UUID      uuid.UUID
 	Name      string
