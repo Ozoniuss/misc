@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"os"
 
 	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
@@ -17,35 +17,54 @@ type Entity struct {
 	Salary    int
 }
 
+// printInfo prints an entity in a simpler format.
 func (e *Entity) printInfo() {
 	fmt.Printf("UUID: %s\tNAME: %s\t OTHER_NAME: %s\t AGE: %d\t SALARY: %d\n", e.UUID, e.Name, e.OtherName, e.Age, e.Salary)
 }
 
-func main() {
-
+// connect starts the connection with the database.
+func connect() (*gorm.DB, error) {
 	host := "localhost"
 	port := 5432
 	user := "root"
 	dbname := "defaultdb"
 	password := "somefatguy"
 
-	logger := log.Default()
-
 	conn, err := gorm.Open(postgres.Open(
-		// fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=%s", host, port, user, dbname, sslmode),
 		fmt.Sprintf("postgresql://%s:%s@%s:%d/%s", user, password, host, port, dbname),
 	))
+	return conn, err
+}
+
+func run() error {
+
+	db, err := connect()
 
 	if err != nil {
-		logger.Fatalf("could not connect to db: %s", err.Error())
+		return fmt.Errorf("could not connect to db: %w", err)
 	}
 
 	var entities = make([]Entity, 0)
 
-	conn.Order("name DESC").Order("salary ASC").Order("uuid ASC").
-		Find(&entities)
+	// In this case I've used Debug() just to print the query.
+	err = db.Debug().Order("name DESC").Order("salary ASC").Order("uuid ASC").Limit(5).
+		Find(&entities).Error
+
+	if err != nil {
+		return fmt.Errorf("could not execute query: %w", err)
+	}
 
 	for _, e := range entities {
 		e.printInfo()
+	}
+
+	return nil
+}
+
+func main() {
+	err := run()
+	if err != nil {
+		fmt.Printf("[error] %s", err.Error())
+		os.Exit(1)
 	}
 }
