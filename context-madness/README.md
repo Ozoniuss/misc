@@ -44,6 +44,8 @@ You can input 0 to find out which goroutines are still alive.
 Sample run
 ----------
 
+https://user-images.githubusercontent.com/56697671/232488220-532cd79a-8ce2-4ea7-b3b0-9cc1bb33711e.mp4
+
 Limitations
 -----------
 
