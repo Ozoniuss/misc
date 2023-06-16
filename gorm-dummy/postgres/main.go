@@ -1,27 +1,13 @@
 package main
 
 import (
+	"dbtest/model"
 	"fmt"
 	"os"
 
-	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
-
-// Entity models the database entity.
-type Entity struct {
-	UUID      uuid.UUID
-	Name      string
-	OtherName string `gorm:"column:other_name"`
-	Age       int
-	Salary    int
-}
-
-// printInfo prints an entity in a simpler format.
-func (e *Entity) printInfo() {
-	fmt.Printf("UUID: %s\tNAME: %s\t OTHER_NAME: %s\t AGE: %d\t SALARY: %d\n", e.UUID, e.Name, e.OtherName, e.Age, e.Salary)
-}
 
 // connect starts the connection with the database.
 func connect() (*gorm.DB, error) {
@@ -45,7 +31,7 @@ func run() error {
 		return fmt.Errorf("could not connect to db: %w", err)
 	}
 
-	var entities = make([]Entity, 0)
+	var entities = make([]model.Entity, 0)
 
 	// In this case I've used Debug() just to print the query.
 	err = db.Debug().Order("name DESC").Order("salary ASC").Order("uuid ASC").Limit(5).
@@ -56,7 +42,7 @@ func run() error {
 	}
 
 	for _, e := range entities {
-		e.printInfo()
+		e.PrintInfo()
 	}
 
 	return nil
