@@ -10,14 +10,6 @@ import (
 	"time"
 )
 
-func sum(nums []int) int {
-	s := 0
-	for i := 0; i < len(nums); i++ {
-		s += nums[i]
-	}
-	return s
-}
-
 // A simple outbox pattern example. Essentially:
 //
 // - Have some object on which you can do atomic operations on ("aggregate").
@@ -70,42 +62,94 @@ func listener(events <-chan [2]int) {
 	fmt.Println("channel was closed")
 }
 
-// simulates either receiving or not receiving an ack from the listener, as in,
-// failing is the same as not receiving an ack
-func publishOrFail(eventsArray *[]int, eventId *int, mtx *sync.Mutex, events chan<- [2]int) {
+// Database mocks a real database in the application's memory. The state is
+// meant to represent a set of columns representing the aggregate's state,
+// potentially with a set of constraints. Events is meant to represent a
+// separate table (called the outbox table) storing all the unpublished
+// domain events (or all events, and marking the unpublished ones).
+//
+// Note that it is not necessarily the database's job to ensure the aggregate
+// constraints are satisfied after each operation. That falls on the aggregate's
+// internal logic.
+type Database struct {
+	// Implementation detail that protects the database from concurrent access
+	// between the aggregate operation and the poller. This is specific to the
+	// in-memory implementation.
+	mtx *sync.Mutex
 
-	// no events to publish
-	if len(*eventsArray) == 0 {
+	state  int
+	events []DomainEvent
+
+	// This can be computed easily from the database. It's useful for the
+	// consumer to distinguish between events that were already processed.
+	lastEventId int
+}
+
+type AggregateType struct {
+	dbConn *Database
+}
+type DomainEvent struct {
+	id   int
+	diff int
+}
+
+// updateValue is an operation that can be performed on the aggregate.
+func (a *AggregateType) updateValue(new int) {
+	// Simple aggregate internal logic
+	diff := new - int(a.dbConn.state)
+
+	// Other bussiness logic, e.g. for determining that the constraints are
+	// satified
+	// ...
+
+	// Atomic database transaction, which writes the new state.
+	a.dbConn.mtx.Lock()
+	defer a.dbConn.mtx.Unlock()
+	a.dbConn.state = new
+	a.dbConn.events = append(a.dbConn.events, DomainEvent{
+		id:   a.dbConn.lastEventId + 1,
+		diff: diff,
+	})
+	a.dbConn.lastEventId++
+}
+
+// pollDatabaseForUnpublishedEvents represents the message relay which tries to
+// send the unpublished domain events to the consumers. This is done via a
+// poll-based strategy, rather than a push-based one.
+//
+// A failure scenario is simulated within the message relay using randomization.
+func pollDatabaseForUnpublishedEvents(dbConn *Database, events chan<- []DomainEvent) {
+	for {
+		time.Sleep(1 * time.Second)
+		sendUnpublishedEvents(dbConn, events)
+	}
+}
+
+// sendUnpublishedEvents attempts to retrieve all the unpublished events from
+// the database and send them to the downstream consumer.
+func sendUnpublishedEvents(dbConn *Database, events chan<- []DomainEvent) {
+	dbConn.mtx.Lock()
+	defer dbConn.mtx.Unlock()
+
+	// No new events to publish.
+	if len(dbConn.events) == 0 {
 		return
 	}
 
-	// For the sake of this example this cannot happen while the state is being
-	// incremented so there are no race conditions.
-	mtx.Lock()
-	defer mtx.Unlock()
-
-	// we assume all events were sent at once. this is functionally equivalent
-	// to sending the sum
-	eventCompensated := sum(*eventsArray)
-
+	// Simulate periodic failure, that is either the event bus failing after
+	// publishing but before marking the events as being published (removing
+	// them from the database) or not receiving an ACK after a certain period
+	// of time.
 	r := rand.Intn(100)
-	// random ass error
-	if r > 50 {
-		// In this case we send the event but didn't receive an ack. do not
-		// empty the q
-		events <- [2]int{*eventId, eventCompensated}
+	if r > 95 {
+		// Events were sent but not removed, which is the unsuccessful
+		// scenario.
+		events <- dbConn.events
 	} else {
-		// empty the events array
-		events <- [2]int{*eventId, eventCompensated}
-		*eventsArray = []int{}
-	}
-
-}
-
-func sendUpdates(eventsArray *[]int, eventId *int, mtx *sync.Mutex, events chan<- [2]int) {
-	for {
-		time.Sleep(500 * time.Millisecond)
-		publishOrFail(eventsArray, eventId, mtx, events)
+		// Events were both sent and removed, which is the successful
+		// scenario.
+		events <- dbConn.events
+		dbConn.events = []DomainEvent{}
 	}
 }
 
@@ -113,9 +157,20 @@ func main() {
 	events := make(chan [2]int, 100)
 	go listener(events)
 
-	state := 0
+	// Mocks an internal state of some aggregate. Think of an aggregate as an
+	// abstraction holding a set of constraints that have to be satisfied. All
+	// operations performed on the aggregate are atomic (they either success or
+	// fail) and ensure its contraints are satisified.
+	//
+	// In this instance, the aggregate is simply mocked by an integer, and the
+	// only constraint is that the state is always represented by an integer.
+	state := AggregateType(0)
 
+	// Events that were emitted by the aggregate when its state changed.
+	// When the aggregate is changed, it emits an event with the difference
+	// between the new value and the old value.
 	eventsArray := make([]int, 0)
+
 	eventId := 0
 	mtx := &sync.Mutex{}
 
