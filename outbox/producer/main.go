@@ -3,10 +3,13 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"outbox/articles"
 	"strconv"
+	"time"
 )
 
-var storage ArticleStorage
+var storage articles.ArticleStorage
 
 func LikeArticle(articleId int) error {
 
@@ -17,7 +20,7 @@ func LikeArticle(articleId int) error {
 	}
 
 	article.Like()
-	events := article.getLikedEvents()
+	events := article.GetLikedEvents()
 
 	// commit the aggregate's state and domain events atomically to the
 	// database
@@ -29,10 +32,10 @@ func LikeArticle(articleId int) error {
 }
 
 type handler struct {
-	storage ArticleStorage
+	storage articles.ArticleStorage
 }
 
-func NewHandler(storage ArticleStorage) handler {
+func NewHandler(storage articles.ArticleStorage) handler {
 	return handler{
 		storage: storage,
 	}
@@ -41,11 +44,34 @@ func NewHandler(storage ArticleStorage) handler {
 func main() {
 	// Initialize the storage. Based on config, this could instantiate
 	// different types of storage, e.g. postgres
-	storage := NewInMemoryArticles()
+	storage := articles.NewInMemoryArticles()
 	requestHandler := NewHandler(storage)
+
+	a := articles.Article{
+		Id:          1,
+		AuthorId:    1,
+		Content:     "bla",
+		Likes:       3,
+		PublishedAt: time.Now(),
+		ModifiedAt:  time.Now(),
+	}
+	storage.Insert(a)
+
+	storage.UpdateArticleAndInsertLikedEvents(a, []articles.ArticleLikedEvent{articles.ArticleLikedEvent{EventId: 1}})
+
+	// Initialize poller
+	poller, err := articles.NewLikedArticlesPoller(storage, 5*time.Second, "localhost:13311")
+	if err != nil {
+		fmt.Printf("could not start poller: %s\n", err.Error())
+		os.Exit(1)
+	}
+	// Start the poller in a new goroutine.
+	poller.Poll()
 
 	http.HandleFunc("POST /articles/{id}/like", requestHandler.HandleLikeArticle)
 	// other handlers
+
+	http.ListenAndServe("127.0.0.1:18889", nil)
 }
 
 func (h *handler) HandleLikeArticle(w http.ResponseWriter, r *http.Request) {

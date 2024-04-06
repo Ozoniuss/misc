@@ -1,4 +1,4 @@
-package main
+package articles
 
 import (
 	"errors"
@@ -28,9 +28,9 @@ func (a *Article) Like() {
 	})
 }
 
-// getLikedEvents returns all liked events that were generated when performing
+// GetLikedEvents returns all liked events that were generated when performing
 // some business logic through the article aggregate.
-func (a *Article) getLikedEvents() []ArticleLikedEvent {
+func (a *Article) GetLikedEvents() []ArticleLikedEvent {
 	return a.likedEvents
 }
 
@@ -43,9 +43,9 @@ func (a *Article) UpdateContent(newContent string) {
 // ArticleLikedEvent models the payload of an event that is emitted when an
 // author's article receives a like.
 type ArticleLikedEvent struct {
-	EventId   int
-	ArticleId int
-	Timestamp time.Time
+	EventId   int       `json:"event_id"`
+	ArticleId int       `json:"article_id"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // ArticleStorage is a port which represents the required interactions between

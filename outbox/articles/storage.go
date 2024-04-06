@@ -1,4 +1,4 @@
-package main
+package articles
 
 import (
 	"slices"
@@ -19,8 +19,8 @@ type InMemoryArticles struct {
 func NewInMemoryArticles() *InMemoryArticles {
 	return &InMemoryArticles{
 		mu:       sync.Mutex{},
-		articles: make([]Article, 64),
-		outbox:   make([]ArticleLikedEvent, 64),
+		articles: make([]Article, 0, 64),
+		outbox:   make([]ArticleLikedEvent, 0, 64),
 	}
 }
 
@@ -84,5 +84,5 @@ func (repo *InMemoryArticles) GetArticleLikedEventsFromIndex(index int) ([]Artic
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
 
-	return slices.Clone(repo.outbox[index:]), nil
+	return slices.Clone(repo.outbox[index+1:]), nil
 }

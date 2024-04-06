@@ -1,7 +1,8 @@
-package main
+package articles
 
 import (
-	"encoding/gob"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -14,7 +15,29 @@ type LikedArticlesPoller struct {
 	lastEventIndex int
 	pollInterval   time.Duration
 
+	timeout time.Duration
+
 	conn net.Conn
+
+	enc *json.Encoder
+	dec *json.Decoder
+
+	// Do not send new events until this specific one is acked. This also
+	// means not fetching any new events until that point.
+	unacked        Message
+	lastEventAcked bool
+}
+
+// Message models a message that is sent over the network. It has an Id that
+// should be used by the consumer for ACKs.
+type Message struct {
+	Id     int                 `json:"id"`
+	Events []ArticleLikedEvent `json:"events"`
+}
+
+// Ack models an ACK received by the consumer.
+type Ack struct {
+	Id int `json:"id"`
 }
 
 func NewLikedArticlesPoller(storage ArticleStorage, pollInterval time.Duration, authority string) (*LikedArticlesPoller, error) {
@@ -25,19 +48,31 @@ func NewLikedArticlesPoller(storage ArticleStorage, pollInterval time.Duration, 
 		return nil, fmt.Errorf("could not connect to downstream: %s", err.Error())
 	}
 
+	enc := json.NewEncoder(conn)
+	dec := json.NewDecoder(conn)
+
+	timeout := pollInterval - 1*time.Second
+
 	return &LikedArticlesPoller{
 		storage:        storage,
 		lastEventIndex: -1,
 		pollInterval:   pollInterval,
+		timeout:        timeout,
 		conn:           conn,
+		lastEventAcked: false,
+		enc:            enc,
+		dec:            dec,
+		unacked:        Message{},
 	}, nil
 }
 
-func (p *LikedArticlesPoller) poll() {
+func (p *LikedArticlesPoller) Poll() {
 	ticker := time.NewTicker(p.pollInterval)
 	go func() {
 		for {
+			fmt.Println("interval")
 			<-ticker.C
+
 			newEvents, err := p.storage.GetArticleLikedEventsFromIndex(p.lastEventIndex)
 
 			// staff level engineer error handling
@@ -57,23 +92,99 @@ func (p *LikedArticlesPoller) poll() {
 }
 
 func (p *LikedArticlesPoller) sendNewEvents(events []ArticleLikedEvent) error {
-	enc := gob.NewEncoder(p.conn)
-	err := enc.Encode(events)
+
+	// If there are no new events, ignore this.
+	if len(events) == 0 {
+		return nil
+	}
+
+	fmt.Println("encoding events", events)
+
+	// Create a new message. If last event was not acked, the ACK may have
+	// been lost or will come with delay. Send the same event, to ensure
+	// that the ACK is generated again in case it was lost due to network
+	// failure.
+	//
+	// Note that not using latest events plays an important role here, if
+	// new events were generated. If this includes new events since an unacked
+	// event was send, it gets hard to keep track of what the consumer has
+	// actually persisted, and it may lead to missed events.
+	var message Message
+	if !p.lastEventAcked {
+		message = p.unacked
+	} else {
+		message = Message{
+			Id:     events[0].EventId,
+			Events: events,
+		}
+	}
+
+	err := p.enc.Encode(message)
 	if err != nil {
 		return fmt.Errorf("could not send events: %s", err.Error())
 	}
 
-	var ack bool
-	dec := gob.NewDecoder(p.conn)
-	err = dec.Decode(&ack)
-	if err != nil {
-		return fmt.Errorf("failed reading ack from consumer: %s", err.Error())
+	fmt.Println("events encoded", events)
+
+	// If the ack is not received after the timeout, we consider that the
+	// consumer failed.
+	p.conn.SetReadDeadline(time.Now().Add(p.timeout))
+
+	var ack Ack
+	err = p.dec.Decode(&ack)
+
+	// Note that if we sent the same event multiple times, it doesn't matter
+	// that the ACK may be delayed, nor that we may receive multiple ACKs.
+	// Since from now we will be sending a new message, it will eventually
+	// catch up after a few failures.
+	//
+	// This has the potential to lead to quite a significant delay if we
+	// keep missing ACKs, if we only read from the consumer once per polling
+	// interval. To mitigate that, keep reading until the timeout.
+	var loopErr error
+LOOP:
+	for {
+		// this error includes timeout
+		if err != nil {
+			var e *net.OpError // internal net error
+			ok := errors.As(err, &e)
+			if !ok {
+				// this covers all errors, including decoding errors. It means
+				// the event did not get ACKed properly.
+				p.lastEventAcked = false
+				p.unacked = message
+				loopErr = err
+			} else {
+				if e.Timeout() {
+					// This also counts as not being acked, especially the first
+					// time. The difference here is that we're breaking the
+					// loop.
+					p.lastEventAcked = false
+					p.unacked = message
+					loopErr = err
+					break LOOP
+				}
+			}
+			return fmt.Errorf("failed reading ack from consumer: %s", err.Error())
+		} else {
+
+			fmt.Println("ack received", ack)
+
+			// Received an ACK for a previous message. We can disregard this.
+			if ack.Id != message.Id {
+				p.lastEventAcked = false
+				p.unacked = message
+			} else {
+				// proper ACK. we should break the loop.
+				p.lastEventAcked = true
+				p.unacked = Message{}
+				break LOOP
+			}
+		}
 	}
 
-	// This is not particularly necessary, just an extra check for making sure
-	// that the consumeD send the intended ack.
-	if ack {
-		p.lastEventIndex += len(events)
+	if loopErr != nil {
+		return fmt.Errorf("failed to ack; last received error: %s", err.Error())
 	}
 	return nil
 }
