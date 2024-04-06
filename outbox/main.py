@@ -2,11 +2,11 @@ import datetime
 import json
 import socket
 from time import sleep
+from typing import Counter
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, asdict
-
 
 
 # #define data
@@ -46,20 +46,20 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     conn, addr = s.accept()
     with conn:
         print(f"Connected by {addr}")
-        c = 0
         while True:
             try:
-                data = conn.recv(4096).decode('UTF-8')
+                data = conn.recv(1024 * 1024 * 10).decode('UTF-8')
                 print("received data", data)
                 message = Message(**json.loads(str(data)))
-                ack = json.dumps(asdict(Ack(id=message.id)))
                 receivedEvents.extend(message.events)
-                # sleep(7)
-                c += 1
-                if c == 3:
-                    print("sent")
-                    conn.sendall(bytes(ack,encoding="utf-8"))
+
+
+                ack = json.dumps(asdict(Ack(id=message.id)))
+                conn.sendall(bytes(ack,encoding="utf-8"))
+                all = [e['event_id'] for e in receivedEvents]
+                print("allevents", all, len(all))
 
             except Exception as e:
                 print("exception", e)
                 break
+

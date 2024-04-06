@@ -81,12 +81,6 @@ func main() {
 	poller.Poll()
 	log.Info().Msg("started poller")
 
-	time.Sleep(7 * time.Second)
-	err = LikeArticle(a.Id)
-	if err != nil {
-		log.Error().Err(err).Msg("could not like article")
-	}
-
 	http.HandleFunc("POST /articles/{id}/like", requestHandler.HandleLikeArticle)
 	// other handlers
 
@@ -104,7 +98,6 @@ func (h *handler) HandleLikeArticle(w http.ResponseWriter, r *http.Request) {
 
 	err = LikeArticle(articleId)
 
-	// staff level engineer error handling
 	if err != nil {
 		fmt.Printf("got error: %s\n", err.Error())
 		w.WriteHeader(http.StatusInternalServerError)

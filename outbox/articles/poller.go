@@ -72,7 +72,6 @@ func (p *LikedArticlesPoller) Poll() {
 
 			newEvents, err := p.storage.GetArticleLikedEventsFromIndex(p.lastEventIndex)
 
-			// staff level engineer error handling
 			if err != nil {
 				// fmt.Printf("error retrieving latest events, aborting: %s\n", err.Error())
 				log.Error().Err(err).Msg("error retrieving latest events, aborting")
