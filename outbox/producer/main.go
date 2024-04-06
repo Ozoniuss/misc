@@ -72,7 +72,7 @@ func main() {
 	}
 
 	// Initialize poller
-	poller, err := articles.NewLikedArticlesPoller(storage, 5*time.Second, "localhost:13311")
+	poller, err := articles.NewLikedArticlesPoller(storage, 5*time.Second, "localhost:13312")
 	if err != nil {
 		fmt.Printf("could not start poller: %s\n", err.Error())
 		os.Exit(1)
