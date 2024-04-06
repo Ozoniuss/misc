@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // LikedArticlesPoller provides a mechanism for sending liked article events to
@@ -59,7 +61,7 @@ func NewLikedArticlesPoller(storage ArticleStorage, pollInterval time.Duration, 
 		pollInterval:   pollInterval,
 		timeout:        timeout,
 		conn:           conn,
-		lastEventAcked: false,
+		lastEventAcked: true,
 		enc:            enc,
 		dec:            dec,
 		unacked:        Message{},
@@ -69,15 +71,18 @@ func NewLikedArticlesPoller(storage ArticleStorage, pollInterval time.Duration, 
 func (p *LikedArticlesPoller) Poll() {
 	ticker := time.NewTicker(p.pollInterval)
 	go func() {
+		cycle := 0
 		for {
-			fmt.Println("interval")
+			cycle++
+			log.Info().Int("cycle", cycle).Msg("starting new polling cycle")
 			<-ticker.C
 
 			newEvents, err := p.storage.GetArticleLikedEventsFromIndex(p.lastEventIndex)
 
 			// staff level engineer error handling
 			if err != nil {
-				fmt.Printf("error retrieving latest events, aborting: %s\n", err.Error())
+				// fmt.Printf("error retrieving latest events, aborting: %s\n", err.Error())
+				log.Error().Err(err).Msg("error retrieving latest events, aborting")
 				break
 			}
 
@@ -85,7 +90,8 @@ func (p *LikedArticlesPoller) Poll() {
 			// than downstream timeout
 			err = p.sendNewEvents(newEvents)
 			if err != nil {
-				fmt.Printf("did not manage to send new events: %s\n", err.Error())
+				// fmt.Printf("did not manage to send new events: %s\n", err.Error())
+				log.Error().Err(err).Msg("did not manage to send new events")
 			}
 		}
 	}()
@@ -95,10 +101,12 @@ func (p *LikedArticlesPoller) sendNewEvents(events []ArticleLikedEvent) error {
 
 	// If there are no new events, ignore this.
 	if len(events) == 0 {
+		log.Debug().Msg("skipping sending events, no new events")
 		return nil
 	}
 
-	fmt.Println("encoding events", events)
+	// fmt.Println("encoding events", events)
+	log.Info().Any("events", events).Msg("encoding events")
 
 	// Create a new message. If last event was not acked, the ACK may have
 	// been lost or will come with delay. Send the same event, to ensure
@@ -124,7 +132,8 @@ func (p *LikedArticlesPoller) sendNewEvents(events []ArticleLikedEvent) error {
 		return fmt.Errorf("could not send events: %s", err.Error())
 	}
 
-	fmt.Println("events encoded", events)
+	// fmt.Println("events encoded", events)
+	log.Info().Any("message", message).Msg("message sent")
 
 	// If the ack is not received after the timeout, we consider that the
 	// consumer failed.
@@ -168,16 +177,19 @@ LOOP:
 			return fmt.Errorf("failed reading ack from consumer: %s", err.Error())
 		} else {
 
-			fmt.Println("ack received", ack)
+			// fmt.Println("ack received", ack)
+			log.Info().Any("ack", ack).Msg("ack received")
 
 			// Received an ACK for a previous message. We can disregard this.
 			if ack.Id != message.Id {
+				log.Info().Msg("received ack for different event, skipping")
 				p.lastEventAcked = false
 				p.unacked = message
 			} else {
 				// proper ACK. we should break the loop.
 				p.lastEventAcked = true
 				p.unacked = Message{}
+				p.lastEventIndex += len(message.Events)
 				break LOOP
 			}
 		}

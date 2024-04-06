@@ -7,6 +7,9 @@ import (
 	"outbox/articles"
 	"strconv"
 	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 var storage articles.ArticleStorage
@@ -42,6 +45,12 @@ func NewHandler(storage articles.ArticleStorage) handler {
 }
 
 func main() {
+
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
 	// Initialize the storage. Based on config, this could instantiate
 	// different types of storage, e.g. postgres
 	storage := articles.NewInMemoryArticles()
@@ -57,7 +66,7 @@ func main() {
 	}
 	storage.Insert(a)
 
-	storage.UpdateArticleAndInsertLikedEvents(a, []articles.ArticleLikedEvent{articles.ArticleLikedEvent{EventId: 1}})
+	storage.UpdateArticleAndInsertLikedEvents(a, []articles.ArticleLikedEvent{{EventId: 1, ArticleId: 1, Timestamp: time.Now()}})
 
 	// Initialize poller
 	poller, err := articles.NewLikedArticlesPoller(storage, 5*time.Second, "localhost:13311")
@@ -67,10 +76,12 @@ func main() {
 	}
 	// Start the poller in a new goroutine.
 	poller.Poll()
+	log.Info().Msg("started poller")
 
 	http.HandleFunc("POST /articles/{id}/like", requestHandler.HandleLikeArticle)
 	// other handlers
 
+	log.Info().Msg("started server")
 	http.ListenAndServe("127.0.0.1:18889", nil)
 }
 
