@@ -2,6 +2,7 @@ package articles
 
 import (
 	"errors"
+	"math/rand/v2"
 	"time"
 )
 
@@ -25,6 +26,7 @@ func (a *Article) Like() {
 	a.likedEvents = append(a.likedEvents, ArticleLikedEvent{
 		ArticleId: a.Id,
 		Timestamp: time.Now(),
+		EventId:   rand.Int(),
 	})
 }
 

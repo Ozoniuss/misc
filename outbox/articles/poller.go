@@ -127,7 +127,7 @@ func (p *LikedArticlesPoller) sendNewEvents(events []ArticleLikedEvent) error {
 	}
 
 	// fmt.Println("events encoded", events)
-	log.Info().Any("message", message).Msg("message sent")
+	log.Info().Int("id", message.Id).Any("events", events).Msg("message sent")
 
 	// If the ack is not received after the timeout, we consider that the
 	// consumer failed.

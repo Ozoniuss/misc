@@ -31,6 +31,7 @@ func LikeArticle(articleId int) error {
 	if err != nil {
 		return fmt.Errorf("could not update article state after like: %s", err.Error())
 	}
+	log.Info().Int("id", events[0].EventId).Msg("received like")
 	return nil
 }
 
@@ -53,7 +54,7 @@ func main() {
 
 	// Initialize the storage. Based on config, this could instantiate
 	// different types of storage, e.g. postgres
-	storage := articles.NewInMemoryArticles()
+	storage = articles.NewInMemoryArticles()
 	requestHandler := NewHandler(storage)
 
 	a := articles.Article{
@@ -65,8 +66,10 @@ func main() {
 		ModifiedAt:  time.Now(),
 	}
 	storage.Insert(a)
-
-	storage.UpdateArticleAndInsertLikedEvents(a, []articles.ArticleLikedEvent{{EventId: 1, ArticleId: 1, Timestamp: time.Now()}})
+	err := LikeArticle(a.Id)
+	if err != nil {
+		log.Error().Err(err).Msg("could not like article")
+	}
 
 	// Initialize poller
 	poller, err := articles.NewLikedArticlesPoller(storage, 5*time.Second, "localhost:13311")
@@ -77,6 +80,12 @@ func main() {
 	// Start the poller in a new goroutine.
 	poller.Poll()
 	log.Info().Msg("started poller")
+
+	time.Sleep(7 * time.Second)
+	err = LikeArticle(a.Id)
+	if err != nil {
+		log.Error().Err(err).Msg("could not like article")
+	}
 
 	http.HandleFunc("POST /articles/{id}/like", requestHandler.HandleLikeArticle)
 	// other handlers

@@ -42,7 +42,11 @@ func (repo *InMemoryArticles) Get(articleId int) (Article, error) {
 	if idx == -1 {
 		return Article{}, ErrArticleNotFound
 	}
-	return repo.articles[idx], nil
+	articles := repo.articles[idx]
+	// events are not part of the article state itself. ignore them when
+	// retrieving
+	articles.likedEvents = []ArticleLikedEvent{}
+	return articles, nil
 }
 
 func (repo *InMemoryArticles) Update(article Article) (Article, error) {
