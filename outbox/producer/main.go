@@ -47,6 +47,11 @@ func NewHandler(storage articles.ArticleStorage) handler {
 
 func main() {
 
+	portstr := os.Args[1]
+	if portstr == "" {
+		portstr = "13311"
+	}
+
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 
@@ -66,13 +71,13 @@ func main() {
 		ModifiedAt:  time.Now(),
 	}
 	storage.Insert(a)
-	err := LikeArticle(a.Id)
-	if err != nil {
-		log.Error().Err(err).Msg("could not like article")
-	}
+	// err := LikeArticle(a.Id)
+	// if err != nil {
+	// 	log.Error().Err(err).Msg("could not like article")
+	// }
 
 	// Initialize poller
-	poller, err := articles.NewLikedArticlesPoller(storage, 5*time.Second, "localhost:13312")
+	poller, err := articles.NewLikedArticlesPoller(storage, 5*time.Second, "localhost:"+portstr)
 	if err != nil {
 		fmt.Printf("could not start poller: %s\n", err.Error())
 		os.Exit(1)
