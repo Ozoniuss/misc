@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+#
+# Print the metadata of every .flac file in an album folder.
+#
+# Usage:
+#   am print-metadata <album-folder>
+#
+# <album-folder> may be:
+#   - an absolute or relative path to a folder containing .flac files, or
+#   - a bare album name, which is resolved relative to $MUSIC_PATH_SRC.
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "usage: am print-metadata <album-folder>" >&2
+    exit 2
+fi
+
+album=$1
+
+# Resolve a bare album name against MUSIC_PATH_SRC.
+if [[ ! -d $album && -n ${MUSIC_PATH_SRC:-} ]]; then
+    album="$MUSIC_PATH_SRC/$album"
+fi
+
+if [[ ! -d $album ]]; then
+    echo "error: not a directory: $album" >&2
+    exit 1
+fi
+
+shopt -s nullglob
+flacs=("$album"/*.flac)
+shopt -u nullglob
+
+if [[ ${#flacs[@]} -eq 0 ]]; then
+    echo "error: no .flac files found in: $album" >&2
+    exit 1
+fi
+
+for f in "${flacs[@]}"; do
+    echo "===== ${f##*/} ====="
+    metaflac --list --block-type=VORBIS_COMMENT "$f"
+    echo
+done

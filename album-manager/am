@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+#
+# am - album manager
+#
+# Usage:
+#   am <command> [args...]
+#   am help
+#
+# Commands are individual executables in the commands/ directory next to this
+# script. To add a new command, drop an executable named <command> in there.
+
+set -euo pipefail
+
+# Resolve the directory this script lives in (following symlinks), so `am` works
+# no matter where it's invoked from or symlinked to.
+source_path=${BASH_SOURCE[0]}
+while [[ -L $source_path ]]; do
+    dir=$(cd -P "$(dirname "$source_path")" >/dev/null 2>&1 && pwd)
+    source_path=$(readlink "$source_path")
+    [[ $source_path != /* ]] && source_path="$dir/$source_path"
+done
+ROOT_DIR=$(cd -P "$(dirname "$source_path")" >/dev/null 2>&1 && pwd)
+COMMANDS_DIR="$ROOT_DIR/commands"
+
+# Load environment (MUSIC_PATH_SRC, MUSIC_PATH_NAS, ...) so every command can
+# rely on it being present.
+if [[ -f "$ROOT_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$ROOT_DIR/.env"
+    set +a
+fi
+
+usage() {
+    echo "usage: am <command> [args...]"
+    echo
+    echo "commands:"
+    for cmd in "$COMMANDS_DIR"/*; do
+        [[ -x $cmd && -f $cmd ]] || continue
+        echo "  ${cmd##*/}"
+    done
+}
+
+if [[ $# -eq 0 ]]; then
+    usage >&2
+    exit 2
+fi
+
+cmd=$1
+shift
+
+case $cmd in
+    help | -h | --help)
+        usage
+        exit 0
+        ;;
+esac
+
+cmd_path="$COMMANDS_DIR/$cmd"
+if [[ ! -x $cmd_path ]]; then
+    echo "am: unknown command: $cmd" >&2
+    echo >&2
+    usage >&2
+    exit 1
+fi
+
+exec "$cmd_path" "$@"
