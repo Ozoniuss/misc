@@ -4,8 +4,10 @@
 # albums of these songs to show up in the album lists given I don't have the
 # entire album. Putting them in a big ass wrapper album called "noalbum".
 #
-# Navidrome computes an album's identity from a bunch of shit so need to change
-# quite a few tags on the records.
+# All these songs will be available in a playlist.
+#
+# Navidrome computes an album's identity from a bunch of shit so "noalbum" will
+# show up a lot during searches:
 # https://www.navidrome.org/docs/usage/library/tagging/
 #
 # Usage:
@@ -15,7 +17,7 @@
 
 set -euo pipefail
 
-ALBUMARTIST="Various Artists"
+ALBUM_NAME="~noalbum"
 
 if [[ $# -ne 1 ]]; then
     echo "usage: am noalbum <folder>" >&2
@@ -44,65 +46,16 @@ tag_value() {
     metaflac --show-tag="$1" "$2" | head -n1 | cut -d= -f2-
 }
 
-# Print "TAG: old → new" only when the value actually changes.
-diff_set() {
-    local label=$1 old=$2 new=$3
-    [[ $old != "$new" ]] && printf '  %-12s %s → %s\n' "$label:" "${old:-(none)}" "$new"
-    return 0
-}
-
-# Print "TAG: val ✗ removed" only when the tag is currently present.
-diff_remove() {
-    local label=$1 old=$2
-    [[ -n $old ]] && printf '  %-12s %s ✗ removed\n' "$label:" "$old"
-    return 0
-}
-
 for f in "${flacs[@]}"; do
     echo "===== ${f##*/} ====="
 
-    diff_set ALBUM       "$(tag_value ALBUM "$f")"          noalbum
-    diff_set ALBUMARTIST "$(tag_value ALBUMARTIST "$f")"    "$ALBUMARTIST"
-    diff_set COMPILATION "$(tag_value COMPILATION "$f")"    1
-    diff_remove "ALBUM ARTIST"        "$(tag_value "ALBUM ARTIST" "$f")"
-    diff_remove MUSICBRAINZ_ALBUMID   "$(tag_value MUSICBRAINZ_ALBUMID "$f")"
-    diff_remove MUSICBRAINZ_RELEASEGROUPID "$(tag_value MUSICBRAINZ_RELEASEGROUPID "$f")"
-    diff_remove DISCNUMBER            "$(tag_value DISCNUMBER "$f")"
-    diff_remove DISCTOTAL             "$(tag_value DISCTOTAL "$f")"
-    diff_remove TOTALDISCS            "$(tag_value TOTALDISCS "$f")"
-    diff_remove DISCSUBTITLE          "$(tag_value DISCSUBTITLE "$f")"
-    diff_remove TRACKNUMBER           "$(tag_value TRACKNUMBER "$f")"
-    diff_remove TRACKTOTAL            "$(tag_value TRACKTOTAL "$f")"
-    diff_remove TOTALTRACKS           "$(tag_value TOTALTRACKS "$f")"
+    # Show before -> after only when the album actually changes.
+    old_album=$(tag_value ALBUM "$f")
+    [[ $old_album != "$ALBUM_NAME" ]] && printf '  %-8s %s → %s\n' "ALBUM:" "${old_album:-(none)}" "$ALBUM_NAME"
 
-    # Remove before set so we don't end up with duplicate tags. The bare
-    # --remove-tag entries strip album-level fields that would split the album.
-    # The disc tags are stripped because Navidrome renders one section per disc
-    # number ("Disc 0", "Disc 1", ...) within an album; since these tracks come
-    # from all over, their original disc numbers would fragment the single
-    # "noalbum" album into meaningless disc groupings.
-    # The track-number tags are stripped because each track kept its number from
-    # its original album, so the "#" column would show a meaningless mix of 1s,
-    # 2s, etc.; clearing them leaves the column blank for this catch-all album.
-    metaflac \
-        --remove-tag=ALBUM \
-        --remove-tag=ALBUMARTIST \
-        --remove-tag="ALBUM ARTIST" \
-        --remove-tag=COMPILATION \
-        --remove-tag=MUSICBRAINZ_ALBUMID \
-        --remove-tag=MUSICBRAINZ_RELEASEGROUPID \
-        --remove-tag=DISCNUMBER \
-        --remove-tag=DISCTOTAL \
-        --remove-tag=TOTALDISCS \
-        --remove-tag=DISCSUBTITLE \
-        --remove-tag=TRACKNUMBER \
-        --remove-tag=TRACKTOTAL \
-        --remove-tag=TOTALTRACKS \
-        --set-tag=ALBUM=noalbum \
-        --set-tag=ALBUMARTIST="$ALBUMARTIST" \
-        --set-tag=COMPILATION=1 \
-        "$f"
+    # Remove before set so we don't end up with duplicate ALBUM tags.
+    metaflac --remove-tag=ALBUM --set-tag=ALBUM="$ALBUM_NAME" "$f"
 done
 
 echo
-echo "done: ${#flacs[@]} file(s) collapsed into album 'noalbum' by '$ALBUMARTIST'"
+echo "done: ${#flacs[@]} file(s) set to album '$ALBUM_NAME'"
