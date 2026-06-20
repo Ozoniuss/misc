@@ -31,31 +31,40 @@ if [[ ! -d $album ]]; then
     exit 1
 fi
 
-# https://www.gnu.org/software/bash/manual/html_node/The-Shopt-Builtin.html
-shopt -s nullglob
-flacs=("$album"/*.flac)
-shopt -u nullglob
+shopt -s nullglob nocaseglob
+songs=("$album"/*.flac "$album"/*.mp3)
+shopt -u nullglob nocaseglob
 
-if [[ ${#flacs[@]} -eq 0 ]]; then
-    echo "error: no .flac files found in: $album" >&2
+if [[ ${#songs[@]} -eq 0 ]]; then
+    echo "error: no .flac or .mp3 files found in: $album" >&2
     exit 1
 fi
 
-# Read the first value of a Vorbis comment tag, empty if the tag is absent.
-tag_value() {
-    metaflac --show-tag="$1" "$2" | head -n1 | cut -d= -f2-
+flac_album() {
+    metaflac --show-tag=ALBUM "$1" | head -n1 | cut -d= -f2-
 }
 
-for f in "${flacs[@]}"; do
+mp3_album() {
+    mid3v2 -l "$1" 2>/dev/null | sed -n 's/^TALB=//p' | head -n1
+}
+
+for f in "${songs[@]}"; do
     echo "===== ${f##*/} ====="
 
-    # Show before -> after only when the album actually changes.
-    old_album=$(tag_value ALBUM "$f")
+    ext=${f##*.}
+    case ${ext,,} in
+        flac) old_album=$(flac_album "$f") ;;
+        mp3)  old_album=$(mp3_album "$f") ;;
+    esac
+
     [[ $old_album != "$ALBUM_NAME" ]] && printf '  %-8s %s → %s\n' "ALBUM:" "${old_album:-(none)}" "$ALBUM_NAME"
 
-    # Remove before set so we don't end up with duplicate ALBUM tags.
-    metaflac --remove-tag=ALBUM --set-tag=ALBUM="$ALBUM_NAME" "$f"
+    case ${ext,,} in
+        # metaflac --set-tag appends, so remove first to avoid duplicate ALBUM tags.
+        flac) metaflac --remove-tag=ALBUM --set-tag=ALBUM="$ALBUM_NAME" "$f" ;;
+        mp3)  mid3v2 --TALB "$ALBUM_NAME" "$f" >/dev/null ;;
+    esac
 done
 
 echo
-echo "done: ${#flacs[@]} file(s) set to album '$ALBUM_NAME'"
+echo "done: ${#songs[@]} file(s) set to album '$ALBUM_NAME'"
