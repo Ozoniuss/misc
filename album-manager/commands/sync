@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+#
+# Sync a folder from the source music library to the destination (NAS).
+#
+# Copies every file from $MUSIC_PATH_SRC/<folder> into $MUSIC_PATH_NAS/<folder>,
+# overwriting files that already exist in the destination. Files that only exist
+# in the destination are left untouched.
+#
+# Usage:
+#   am sync <folder>
+#
+# <folder> is a folder name relative to $MUSIC_PATH_SRC / $MUSIC_PATH_NAS.
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "usage: am sync <folder>" >&2
+    exit 2
+fi
+
+if [[ -z ${MUSIC_PATH_SRC:-} ]]; then
+    echo "error: MUSIC_PATH_SRC is not set" >&2
+    exit 1
+fi
+if [[ -z ${MUSIC_PATH_NAS:-} ]]; then
+    echo "error: MUSIC_PATH_NAS is not set" >&2
+    exit 1
+fi
+
+folder=$1
+src="$MUSIC_PATH_SRC/$folder"
+dest="$MUSIC_PATH_NAS/$folder"
+
+echo "MUSIC_PATH_SRC: $MUSIC_PATH_SRC"
+echo "MUSIC_PATH_NAS: $MUSIC_PATH_NAS"
+echo
+echo "source:      $src"
+echo "destination: $dest"
+echo
+
+if [[ ! -d $src ]]; then
+    echo "error: not a directory: $src" >&2
+    exit 1
+fi
+
+mkdir -p "$dest"
+rsync -rtv "$src"/ "$dest"/
+
+echo
+echo "done: synced '$folder'"
