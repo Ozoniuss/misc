@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+#
+# Embed a cover image into every .flac file in a folder.
+#
+# Looks for a single cover image in the folder (cover.{jpg,jpeg,png}), strips
+# any existing embedded pictures and embeds it into each .flac.
+#
+# Usage:
+#   am embed-cover <folder> [image]
+#
+# <folder> is a path to a folder containing .flac files.
+# [image]  optionally overrides cover detection with an explicit image path.
+
+set -euo pipefail
+
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+    echo "usage: am embed-cover <folder> [image]" >&2
+    exit 2
+fi
+
+album=$1
+image=${2:-}
+
+if [[ ! -d $album ]]; then
+    echo "error: not a directory: $album" >&2
+    exit 1
+fi
+
+shopt -s nullglob nocaseglob
+flacs=("$album"/*.flac)
+shopt -u nullglob nocaseglob
+
+if [[ ${#flacs[@]} -eq 0 ]]; then
+    echo "error: no .flac files found in: $album" >&2
+    exit 1
+fi
+
+if [[ -z $image ]]; then
+    candidates=()
+    for name in cover.jpg cover.jpeg cover.png; do
+        [[ -f "$album/$name" ]] && candidates+=("$album/$name")
+    done
+
+    if [[ ${#candidates[@]} -eq 0 ]]; then
+        echo "error: no cover image found in: $album" >&2
+        echo "       expected cover.{jpg,jpeg,png}" >&2
+        exit 1
+    fi
+    if [[ ${#candidates[@]} -gt 1 ]]; then
+        echo "error: multiple cover images found, pass one explicitly:" >&2
+        printf '  %s\n' "${candidates[@]}" >&2
+        exit 1
+    fi
+    image=${candidates[0]}
+fi
+
+if [[ ! -f $image ]]; then
+    echo "error: not a file: $image" >&2
+    exit 1
+fi
+
+echo "cover: $image"
+echo
+
+for f in "${flacs[@]}"; do
+    echo "===== ${f##*/} ====="
+    metaflac --remove --block-type=PICTURE --dont-use-padding "$f"
+    metaflac --import-picture-from="$image" "$f"
+done
+
+echo
+echo "done: cover embedded into ${#flacs[@]} file(s)"
