@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# Convert every .flac file in a folder to the highest quality .mp3.
+#
+# Each <input>/*.flac is encoded to 320 kbps CBR MP3 in <output>, carrying over
+# tags and embedded cover art. Existing .mp3 files in <output> are overwritten.
+#
+# Usage:
+#   am to-mp3 <input> <output>
+#
+# <input>  path to a folder containing .flac files.
+# <output> path to an existing folder where the .mp3 files are written.
+
+set -euo pipefail
+
+if [[ $# -ne 2 ]]; then
+    echo "usage: am to-mp3 <input> <output>" >&2
+    exit 2
+fi
+
+input=$1
+output=$2
+
+if [[ ! -d $input ]]; then
+    echo "error: not a directory: $input" >&2
+    exit 1
+fi
+if [[ ! -d $output ]]; then
+    echo "error: not a directory: $output" >&2
+    exit 1
+fi
+
+shopt -s nullglob nocaseglob
+flacs=("$input"/*.flac)
+shopt -u nullglob nocaseglob
+
+if [[ ${#flacs[@]} -eq 0 ]]; then
+    echo "error: no .flac files found in: $input" >&2
+    exit 1
+fi
+
+echo "input:  $input"
+echo "output: $output"
+echo
+
+for f in "${flacs[@]}"; do
+    base=${f##*/}
+    dest="$output/${base%.*}.mp3"
+    echo "===== $base -> ${dest##*/} ====="
+    ffmpeg -y -i "$f" \
+        -map 0:a -map 0:v? -c:v copy \
+        -c:a libmp3lame -b:a 320k \
+        -map_metadata 0 -id3v2_version 3 \
+        "$dest"
+done
+
+echo
+echo "done: converted ${#flacs[@]} file(s)"

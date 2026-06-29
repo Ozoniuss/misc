@@ -44,7 +44,7 @@ if [[ ! -d $src ]]; then
 fi
 
 mkdir -p "$dest"
-rsync -rtv "$src"/ "$dest"/
+rsync -rtv --chmod=D755,F644 "$src"/ "$dest"/
 
 echo
 echo "done: synced '$folder'"
